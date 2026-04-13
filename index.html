@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CSS 구조 유지 고급 변환기</title>
+<title>CSS 코드 정렬 변환기</title>
 <style>
 body { font-family: Arial, sans-serif; padding: 20px; background: #111; color: #eee; }
 h1 { font-size: 20px; margin-bottom: 10px; }
@@ -14,7 +14,7 @@ button { padding: 10px 16px; margin-right: 8px; border: none; border-radius: 6px
 </style>
 </head>
 <body>
-<h1>CSS 고급 구조 변환기</h1>
+<h1>CSS 코드 정렬 변환기</h1>
 <textarea id="input" placeholder="여기에 CSS 붙여넣기"></textarea>
 <br>
 <button id="formatBtn">변환하기</button>
@@ -90,46 +90,65 @@ function getPropertyName(prop) {
 }
 
 function sortProperties(props) {
-  return props.sort((a, b) => {
-    const nameA = getPropertyName(a);
-    const nameB = getPropertyName(b);
+  return props
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => {
 
-    // 변수는 항상 마지막
-    if (nameA.startsWith('--')) return 1;
-    if (nameB.startsWith('--')) return -1;
+      const nameA = getPropertyName(a.p);
+      const nameB = getPropertyName(b.p);
 
-    const idxA = PROPERTY_ORDER.indexOf(nameA);
-    const idxB = PROPERTY_ORDER.indexOf(nameB);
-
-    const pa = idxA === -1 ? 998 : idxA;
-    const pb = idxB === -1 ? 998 : idxB;
-
-    if (pa === pb) {
-      // 같은 그룹이면 shorthand 먼저
-      if (nameA.length !== nameB.length) {
-        return nameA.length - nameB.length;
+      // 순서 민감 속성은 그대로 유지
+      if (isOrderSensitive(a.p) || isOrderSensitive(b.p)) {
+        return a.i - b.i;
       }
-      return a.localeCompare(b);
-    }
 
-    return pa - pb;
-  });
+      // 변수는 항상 마지막
+      if (nameA.startsWith('--')) return 1;
+      if (nameB.startsWith('--')) return -1;
+
+      const idxA = PROPERTY_ORDER.indexOf(nameA);
+      const idxB = PROPERTY_ORDER.indexOf(nameB);
+
+      const pa = idxA === -1 ? 998 : idxA;
+      const pb = idxB === -1 ? 998 : idxB;
+
+      // unknown 속성끼리는 순서 유지
+      if (pa === 998 && pb === 998) {
+        return a.i - b.i;
+      }
+
+      // 같은 속성 → 순서 유지 (중복 허용 핵심)
+      if (nameA === nameB) {
+        return a.i - b.i;
+      }
+
+      // 같은 그룹 → 순서 유지
+      if (pa === pb) {
+        return a.i - b.i;
+      }
+
+      return pa - pb;
+    })
+    .map(v => v.p);
 }
 
 function formatBlock(selector, content) {
   const props = content
-  .split(';')
-  .map(p => p.trim())
-  .filter(Boolean)
-  .map(p => {
-    const [key, value] = p.split(':');
-    if (!value) return p;
-    return key.trim() + ':' + value.trim(); // 공백 제거
-  });
+    .split(';')
+    .map(p => p.trim())
+    .filter(Boolean)
+    .map(p => {
+      const idx = p.indexOf(':'); // 첫 번째 :만 사용
+      if (idx === -1) return p;
+
+      const key = p.slice(0, idx);
+      const value = p.slice(idx + 1);
+
+      return key.trim() + ':' + value.trim();
+    });
 
   const isVarBlock = props.every(p => p.startsWith('--'));
 
-  // 변수 블록: 세로 유지 (안전한 방식)
   if (isVarBlock) {
     return selector + ' {\n' +
       props.map(p => '  ' + p + ';').join('\n') +
@@ -141,7 +160,33 @@ function formatBlock(selector, content) {
   return selector + ' {' + sorted.join('; ') + ';}';
 }
 
+function isOrderSensitive(prop) {
+  const key = getPropertyName(prop);
+
+  return [
+    'animation',
+    'transition',
+
+    'background',
+    'background-image',
+
+    'border',
+    'border-top',
+    'border-right',
+    'border-bottom',
+    'border-left',
+
+    'font',
+
+    'flex',
+    'grid',
+
+    'overflow'
+  ].includes(key);
+}
+
 function formatCssAdvanced(css) {
+  let inKeyframes = false;
   const comments = [];
   css = css.replace(/\/\*[\s\S]*?\*\//g, (match) => {
     comments.push(match);
@@ -157,6 +202,22 @@ function formatCssAdvanced(css) {
 
   for (let line of lines) {
     const trimmed = line.trim();
+    // keyframes 시작
+    if (trimmed.startsWith('@keyframes')) {
+      output += trimmed + '\n';
+      inKeyframes = true;
+      continue;
+    }
+
+    // keyframes 내부는 그대로 출력
+    if (inKeyframes) {
+      output += trimmed + '\n';
+
+      if (trimmed === '}') {
+        inKeyframes = false;
+      }
+      continue;
+    }
 
     // 주석
     if (trimmed.startsWith('__COMMENT_')) {
