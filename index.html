@@ -3,106 +3,131 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CSS 정렬 변환기</title>
+<title>CSS 구조 유지 고급 변환기 V5</title>
 <style>
 body { font-family: Arial, sans-serif; padding: 20px; background: #111; color: #eee; }
 h1 { font-size: 20px; margin-bottom: 10px; }
-textarea { width: 100%; height: 320px; margin-bottom: 10px; padding: 10px; border-radius: 6px; border: 1px solid #333; background: #1e1e1e; color: #eee; font-family: 'Cascadia Code', 'Fira Code', monospace; line-height: 1.5; font-size: 13px; }
-button { padding: 10px 16px; margin-right: 8px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+textarea { width: 100%; height: 320px; margin-bottom: 10px; padding: 10px; border-radius: 6px; border: 1px solid #333; background: #1e1e1e; color: #eee; font-family: 'Cascadia Code', 'Fira Code', monospace; line-height: 1.5; font-size: 13px; outline: none; }
+button { padding: 10px 16px; margin-right: 8px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: opacity 0.2s; }
+button:active { opacity: 0.7; }
 #formatBtn { background: #4caf50; color: white; }
 #copyBtn { background: #2196f3; color: white; }
+
+/* 토스트 알림 스타일 */
+#toast {
+  visibility: hidden; min-width: 200px; background-color: #333; color: #fff; text-align: center;
+  border-radius: 8px; padding: 12px; position: fixed; z-index: 1; left: 50%; bottom: 30px;
+  transform: translateX(-50%); font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+#toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+@keyframes fadein { from { bottom: 0; opacity: 0; } to { bottom: 30px; opacity: 1; } }
+@keyframes fadeout { from { bottom: 30px; opacity: 1; } to { bottom: 0; opacity: 0; } }
 </style>
 </head>
 <body>
-<h1>CSS 정렬 변환기</h1>
+<h1>CSS 고급 구조 변환기 (셀렉터 개행 & 토스트 반영)</h1>
 <textarea id="input" placeholder="여기에 CSS를 붙여넣으세요."></textarea>
 <br>
 <button id="formatBtn">변환하기</button>
 <button id="copyBtn">복사</button>
 <textarea id="output" placeholder="변환 결과가 여기에 표시됩니다."></textarea>
 
+<div id="toast">복사되었습니다.</div>
+
 <script>
-// 레이아웃 영향을 주는 Concentric CSS 기반 확장 배열
 const PROPERTY_ORDER = [
-  'all', 'appearance', 'box-sizing',
-  'display', 'position', 'top', 'right', 'bottom', 'left', 'inset', 'z-index',
-  'float', 'clear',
-  'flex', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content', 'order', 'flex-grow', 'flex-shrink', 'flex-basis', 'align-self', 'gap',
-  'grid', 'grid-template', 'grid-template-rows', 'grid-template-columns', 'grid-template-areas', 'grid-auto-rows', 'grid-auto-columns', 'grid-auto-flow', 'grid-row', 'grid-column', 'grid-area',
-  'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height', 'aspect-ratio',
+  'all', 'appearance', 'box-sizing', 'display', 'position', 'top', 'right', 'bottom', 'left', 'inset', 'z-index',
+  'flex', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'gap', 'grid', 'width', 'height',
   'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
   'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-  'border', 'border-width', 'border-style', 'border-color', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-radius', 'outline',
-  'background', 'background-color', 'background-image', 'background-position', 'background-size', 'background-repeat', 'background-clip', 'backdrop-filter',
-  'color', 'font', 'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-decoration', 'text-transform', 'white-space', 'word-break', 'overflow-wrap', 'text-overflow',
-  'overflow', 'overflow-x', 'overflow-y', 'clip-path', 'object-fit', 'object-position',
-  'opacity', 'visibility', 'box-shadow', 'filter',
-  'transform', 'transform-origin', 'transition', 'animation', 'cursor', 'pointer-events', 'user-select'
+  'border', 'border-radius', 'background', 'color', 'font', 'font-size', 'line-height', 'text-align',
+  'overflow', 'opacity', 'box-shadow', 'transform', 'transition', 'animation', 'user-select'
 ];
 
-const WEBKIT_PROPS = [
-  'user-select', 'backdrop-filter', 'appearance', 'mask-image', 
-  'mask-size', 'mask-repeat', 'mask-position', 'clip-path', 
-  'text-size-adjust', 'tap-highlight-color'
-];
+const WEBKIT_PROPS = ['user-select', 'backdrop-filter', 'appearance', 'clip-path'];
 
-// Cascade 파괴 방지를 위한 단축/개별 속성 락(Lock) 리스트
 function isOrderSensitive(propName) {
-  return [
-    'margin', 'padding', 'border', 'border-radius', 'inset', 'outline', 'background', 'font', 'flex', 'grid', 'animation', 'transition', 'overflow'
-  ].some(sensitiveProp => propName.startsWith(sensitiveProp));
+  return ['margin', 'padding', 'border', 'background', 'font', 'flex', 'grid', 'animation', 'transition'].some(p => propName.startsWith(p));
 }
 
-// 괄호 뎁스를 추적하여 Base64 및 calc() 파괴를 방지하는 AST 파서
-function parseAST(cssString) {
-  const root = { type: 'root', children: [] };
-  const stack = [root];
-  let buffer = '';
-  let quote = null;
-  let parenDepth = 0; // 괄호 추적 변수 추가
+// 셀렉터 콤마 개행 및 다중 공백/줄바꿈 초기화 함수
+function formatSelector(selector, indent) {
+  // 1. 원본 셀렉터 내부의 불필요한 줄바꿈과 연속 공백을 1개의 공백으로 압축
+  let cleaned = selector.replace(/\s+/g, ' ');
+  
+  // 2. [버그 픽스] 주석 플레이스홀더와 셀렉터 사이에 생성된 잉여 공백 완벽 제거
+  cleaned = cleaned.replace(/(\/\*__COMMENT_\d+__\*\/)\s+/g, '$1');
+  
+  // 3. 콤마 주변의 공백을 완전히 제거하여 초기화
+  cleaned = cleaned.replace(/\s*,\s*/g, ',');
 
-  for (let i = 0; i < cssString.length; i++) {
-    const char = cssString[i];
-    
+  let result = '';
+  let parenDepth = 0;
+  let quote = null;
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const char = cleaned[i];
+
     if (quote) {
-      buffer += char;
-      if (char === quote && cssString[i - 1] !== '\\') quote = null;
+      result += char;
+      if (char === quote && cleaned[i - 1] !== '\\') quote = null;
       continue;
     }
     if (char === '"' || char === "'") {
       quote = char;
-      buffer += char;
+      result += char;
       continue;
     }
 
     if (char === '(') parenDepth++;
     if (char === ')') parenDepth--;
+    
+    if (char === ',' && parenDepth === 0) {
+      result += ',\n' + indent;
+    } else {
+      result += char;
+    }
+  }
+  
+  return result.trim();
+}
+
+function parseAST(cssString) {
+  const root = { type: 'root', children: [] };
+  const stack = [root];
+  let buffer = '';
+  let quote = null;
+  let parenDepth = 0;
+
+  for (let i = 0; i < cssString.length; i++) {
+    const char = cssString[i];
+    if (quote) {
+      buffer += char;
+      if (char === quote && cssString[i - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") { quote = char; buffer += char; continue; }
+    if (char === '(') parenDepth++;
+    if (char === ')') parenDepth--;
 
     if (char === '{' && parenDepth === 0) {
       const current = stack[stack.length - 1];
-      const selector = buffer.trim();
-      const newNode = { type: selector.startsWith('@') ? 'at-rule' : 'rule', selector, declarations: [], children: [] };
+      const newNode = { type: buffer.trim().startsWith('@') ? 'at-rule' : 'rule', selector: buffer.trim(), declarations: [], children: [] };
       current.children.push(newNode);
       stack.push(newNode);
       buffer = '';
       continue;
     }
-    
     if (char === '}' && parenDepth === 0) {
       const current = stack.pop();
       if (buffer.trim()) current.declarations.push(buffer.trim());
       buffer = '';
       continue;
     }
-    
-    // 괄호 안의 세미콜론(Base64)은 무시하여 코드 절단 방지
     if (char === ';' && parenDepth === 0) {
       const current = stack[stack.length - 1];
-      if (current.type === 'root') {
-        current.children.push({ type: 'directive', content: buffer.trim() + ';' });
-      } else {
-        current.declarations.push(buffer.trim());
-      }
+      if (current.type === 'root') current.children.push({ type: 'directive', content: buffer.trim() + ';' });
+      else current.declarations.push(buffer.trim());
       buffer = '';
       continue;
     }
@@ -112,126 +137,86 @@ function parseAST(cssString) {
 }
 
 function formatDeclarations(declarations) {
-  const parsedDecls = declarations
-    .filter(d => d.trim().length > 0)
-    .map(d => {
-      // 인라인 주석 삭제 방지 로직
-      if (d.includes('/*__COMMENT_')) return { type: 'comment', val: d };
-      
-      const idx = d.indexOf(':');
-      if (idx === -1) return null;
-      return { type: 'prop', key: d.slice(0, idx).trim(), val: d.slice(idx + 1).trim() };
-    })
-    .filter(Boolean);
+  const parsed = declarations.map(d => {
+    if (d.includes('/*__COMMENT_')) return { type: 'comment', val: d };
+    const idx = d.indexOf(':');
+    return idx === -1 ? null : { type: 'prop', key: d.slice(0, idx).trim(), val: d.slice(idx + 1).trim() };
+  }).filter(Boolean);
 
-  const finalDecls = [];
-  const existingKeys = parsedDecls.filter(d => d.type === 'prop').map(d => d.key);
-
-  parsedDecls.forEach(d => {
-    if (d.type === 'comment') {
-      finalDecls.push(d);
-      return;
+  const final = [];
+  const keys = parsed.filter(p => p.type === 'prop').map(p => p.key);
+  parsed.forEach(d => {
+    if (d.type === 'prop' && WEBKIT_PROPS.includes(d.key) && !keys.includes(`-webkit-${d.key}`)) {
+      final.push({ type: 'prop', key: `-webkit-${d.key}`, val: d.val });
     }
-    if (WEBKIT_PROPS.includes(d.key) || (d.key === 'background-clip' && d.val === 'text')) {
-      const webkitKey = `-webkit-${d.key}`;
-      if (!existingKeys.includes(webkitKey)) {
-        finalDecls.push({ type: 'prop', key: webkitKey, val: d.val });
-      }
-    }
-    finalDecls.push(d);
+    final.push(d);
   });
 
-  finalDecls.sort((a, b) => {
-    if (a.type === 'comment' || b.type === 'comment') return 0; // 주석은 위치 유지
-    
-    const baseA = a.key.replace('-webkit-', '');
-    const baseB = b.key.replace('-webkit-', '');
-    
-    // Cascade 민감 속성은 사용자 작성 원본 순서 강제 유지
+  final.sort((a, b) => {
+    if (a.type === 'comment' || b.type === 'comment') return 0;
+    const baseA = a.key.replace('-webkit-', ''), baseB = b.key.replace('-webkit-', '');
     if (isOrderSensitive(baseA) || isOrderSensitive(baseB)) return 0;
-    
-    if (a.key.startsWith('--') && !b.key.startsWith('--')) return 1;
-    if (!a.key.startsWith('--') && b.key.startsWith('--')) return -1;
-    
-    const idxA = PROPERTY_ORDER.indexOf(baseA);
-    const idxB = PROPERTY_ORDER.indexOf(baseB);
-    
-    if (idxA !== -1 && idxB !== -1) {
-      if (idxA === idxB) return a.key.includes('-webkit-') ? -1 : 1;
-      return idxA - idxB;
-    }
+    const idxA = PROPERTY_ORDER.indexOf(baseA), idxB = PROPERTY_ORDER.indexOf(baseB);
+    if (idxA !== -1 && idxB !== -1) return idxA === idxB ? (a.key.includes('-webkit-') ? -1 : 1) : idxA - idxB;
     return 0;
   });
-
-  return finalDecls;
+  return final;
 }
 
 function generateCSS(node, depth = 0) {
   const indent = '  '.repeat(depth);
-  let output = '';
-
-  if (node.type === 'root') {
-    return node.children.map(child => generateCSS(child, depth)).join('\n');
-  }
-
+  if (node.type === 'root') return node.children.map(c => generateCSS(c, depth)).join('\n');
   if (node.type === 'directive') return indent + node.content;
 
   const decls = formatDeclarations(node.declarations);
-  const isVarBlock = decls.length > 0 && decls.every(d => d.type === 'prop' && d.key.startsWith('--'));
+  const formattedSelector = formatSelector(node.selector, indent);
+  let output = indent + formattedSelector + ' {'; // { 앞에 공백 추가
 
   if (node.type === 'at-rule') {
-    output += indent + node.selector + '{';
-    if (decls.length > 0) {
-      output += decls.map(d => d.type === 'comment' ? d.val : `${d.key}:${d.val};`).join(' ');
-    }
-    if (node.children.length > 0) {
-      output += '\n' + node.children.map(child => generateCSS(child, depth + 1)).join('\n') + '\n' + indent;
-    }
-    output += '}';
-    return output;
+    if (decls.length > 0) output += decls.map(d => d.type === 'comment' ? d.val : `${d.key}:${d.val};`).join(' ');
+    if (node.children.length > 0) output += '\n' + node.children.map(c => generateCSS(c, depth + 1)).join('\n') + '\n' + indent;
+    return output + '}';
   }
 
-  if (node.type === 'rule') {
-    if (isVarBlock || node.children.length > 0) {
-      output += indent + node.selector + '{\n';
-      decls.forEach(d => {
-        if (d.type === 'comment') output += indent + '  ' + d.val + '\n';
-        else output += indent + '  ' + d.key + ':' + d.val + ';\n';
-      });
-      node.children.forEach(child => output += generateCSS(child, depth + 1) + '\n');
-      output += indent + '}';
-    } else {
-      const inlineCSS = decls.map(d => d.type === 'comment' ? d.val : `${d.key}:${d.val};`).join(' ');
-      output += indent + node.selector + '{' + inlineCSS + '}';
-    }
-    return output;
+  const isVarBlock = decls.length > 0 && decls.every(d => d.type === 'prop' && d.key.startsWith('--'));
+  if (isVarBlock || node.children.length > 0) {
+    output = indent + formattedSelector + ' {\n';
+    decls.forEach(d => output += indent + '  ' + (d.type === 'comment' ? d.val : `${d.key}:${d.val};`) + '\n');
+    node.children.forEach(c => output += generateCSS(c, depth + 1) + '\n');
+    return output + indent + '}';
+  } else {
+    return output + decls.map(d => d.type === 'comment' ? d.val : `${d.key}:${d.val};`).join(' ') + '}';
   }
 }
 
-function formatCssAdvanced(css) {
-  const comments = [];  
-  let processedCss = css.replace(/\/\*[\s\S]*?\*\//g, match => {
-    comments.push(match.trim());
-    return `/*__COMMENT_${comments.length - 1}__*/`;
-  });  
-  const ast = parseAST(processedCss);
-  let finalCSS = generateCSS(ast);  
-  finalCSS = finalCSS.replace(/\/\*__COMMENT_(\d+)__\*\//g, (match, i) => comments[i]);
-  finalCSS = finalCSS.replace(/(^[ \t]*\/\*[\s\S]*?\*\/)[ \t]+([^ \t\n])/gm, '$1\n$2');  
-  finalCSS = finalCSS.replace(/([^\s{])\n([ \t]*\/\*[\s\S]*?\*\/)/g, '$1\n\n$2');
-  return finalCSS.replace(/\n{3,}/g, '\n\n').trim();
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  toast.innerText = message;
+  toast.className = "show";
+  setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3000);
 }
 
 document.getElementById('formatBtn').addEventListener('click', () => {
   const input = document.getElementById('input').value;
-  document.getElementById('output').value = formatCssAdvanced(input);
+  const comments = [];
+  const processed = input.replace(/\/\*[\s\S]*?\*\//g, m => {
+    comments.push(m.trim());
+    return `/*__COMMENT_${comments.length - 1}__*/`;
+  });
+  const ast = parseAST(processed);
+  let final = generateCSS(ast);
+  final = final.replace(/\/\*__COMMENT_(\d+)__\*\//g, (m, i, offset, str) => {
+    const isInline = str[offset - 1] !== '\n' && str[offset - 1] !== '{';
+    return isInline ? ' ' + comments[i] : '\n\n' + comments[i] + '\n';
+  });
+  document.getElementById('output').value = final.replace(/\n{3,}/g, '\n\n').trim();
 });
 
 document.getElementById('copyBtn').addEventListener('click', () => {
   const output = document.getElementById('output');
   output.select();
   document.execCommand('copy');
-  alert('복사되었습니다.');
+  showToast("복사되었습니다.");
 });
 </script>
 </body>
